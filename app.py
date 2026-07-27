@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import tensorflow as tf
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
@@ -10,8 +10,7 @@ import requests
 app = Flask(__name__)
 
 # Enable CORS for frontend on Vercel to communicate with this backend
-CORS(app, origins=["https://*.vercel.app", "http://localhost:3000", "http://localhost:5000"])
-# If you have a specific Vercel domain, replace with: CORS(app, origins=["https://your-vercel-domain.vercel.app"])
+CORS(app, origins=["https://plantpulseaigpk.vercel.app", "https://*.vercel.app", "http://localhost:3000", "http://localhost:5000"])
 
 # Load the pre-trained model
 model_path = 'cotton_disease_model.h5'  # Update this with your actual model file path
@@ -220,7 +219,7 @@ solutions = {
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return jsonify({"status": "success", "message": "Cotton Disease Backend API is running"}), 200
 
 
 @app.route('/weather', methods=['GET', 'POST'])
@@ -228,36 +227,43 @@ def home():
     weather_data = None
 
     if request.method == 'POST':
-        city = request.form.get('city').strip()
+        city = request.form.get('city', '').strip()
+        if not city:
+            return jsonify({"error": "City name is required"}), 400
+            
         api_key = "442f888957d18437f16405accc5e5120"
         url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
         
-        response = requests.get(url)
-        
-        if response.status_code == 200:
-            data = response.json()
-            weather_data = {
-                "city": data["name"],
-                "temperature": data["main"]["temp"],
-                "description": data["weather"][0]["description"].capitalize(),
-                "humidity": data["main"]["humidity"],
-                "wind_speed": data["wind"]["speed"],
-                "pressure": data["main"]["pressure"],
-                "icon": data["weather"][0]["icon"]
-            }
-        else:
-            weather_data = {"error": "City not found. Please try again."}
-
-    return render_template('weather.html', weather=weather_data)
+        try:
+            response = requests.get(url)
+            
+            if response.status_code == 200:
+                data = response.json()
+                weather_data = {
+                    "city": data["name"],
+                    "temperature": data["main"]["temp"],
+                    "description": data["weather"][0]["description"].capitalize(),
+                    "humidity": data["main"]["humidity"],
+                    "wind_speed": data["wind"]["speed"],
+                    "pressure": data["main"]["pressure"],
+                    "icon": data["weather"][0]["icon"]
+                }
+                return jsonify(weather_data), 200
+            else:
+                return jsonify({"error": "City not found. Please try again."}), 404
+        except Exception as e:
+            return jsonify({"error": f"Failed to fetch weather: {str(e)}"}), 500
+    
+    return jsonify({"message": "Send a POST request with city name to get weather data"}), 200
 
 
 @app.route("/learn")
 def learn():
-    return render_template("learn.html")
+    return jsonify({"message": "Learn endpoint"}), 200
 
 @app.route("/al")
 def al():
-    return render_template("al.html")
+    return jsonify({"message": "AL endpoint"}), 200
 
 @app.route("/predict", methods=["POST"])
 def predict():
@@ -277,15 +283,19 @@ def predict():
         return jsonify(response), 400
 
     try:
-        # Save the uploaded file to the uploads directory
+        # Ensure directories exist
         uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")
+        static_dir = os.path.join(os.path.dirname(__file__), "static")
         os.makedirs(uploads_dir, exist_ok=True)
+        os.makedirs(static_dir, exist_ok=True)
+        
+        # Save and process the image
         filepath = os.path.join(uploads_dir, file.filename)
         file.save(filepath)
 
         # Preprocess the image
-        img = load_img(filepath, target_size=(128, 128))  # Resize as per your model's input size
-        img_array = img_to_array(img) / 255.0  # Normalize pixel values
+        img = load_img(filepath, target_size=(128, 128))
+        img_array = img_to_array(img) / 255.0
         img_array = np.expand_dims(img_array, axis=0)
 
         # Make prediction
@@ -295,7 +305,7 @@ def predict():
 
         # Copy image to static for display
         static_filename = file.filename
-        static_path = os.path.join(os.path.dirname(__file__), "static", static_filename)
+        static_path = os.path.join(static_dir, static_filename)
         shutil.copy2(filepath, static_path)
 
         # Handle unrelated images with a confidence threshold
@@ -328,9 +338,11 @@ def predict():
         }), 200
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "status": "error",
-            "message": f"An error occurred: {str(e)}"
+            "message": f"An error occurred during prediction: {str(e)}"
         }), 500
 
 if __name__ == "__main__":
