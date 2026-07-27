@@ -1,11 +1,17 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, jsonify
+from flask_cors import CORS
 import tensorflow as tf
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
 import numpy as np
 import os
+import shutil
 import requests
 
 app = Flask(__name__)
+
+# Enable CORS for frontend on Vercel to communicate with this backend
+CORS(app, origins=["https://*.vercel.app", "http://localhost:3000", "http://localhost:5000"])
+# If you have a specific Vercel domain, replace with: CORS(app, origins=["https://your-vercel-domain.vercel.app"])
 
 # Load the pre-trained model
 model_path = 'cotton_disease_model.h5'  # Update this with your actual model file path
@@ -256,15 +262,25 @@ def al():
 @app.route("/predict", methods=["POST"])
 def predict():
     if 'file' not in request.files:
-        return render_template("error.html", message="No file uploaded. Please upload an image.")
+        response = {
+            "status": "error",
+            "message": "No file uploaded. Please upload an image."
+        }
+        return jsonify(response), 400
 
     file = request.files['file']
     if not file.filename:
-        return render_template("error.html", message="No file selected. Please choose a valid image file.")
+        response = {
+            "status": "error",
+            "message": "No file selected. Please choose a valid image file."
+        }
+        return jsonify(response), 400
 
     try:
-        # Save the uploaded file to the static directory
-        filepath = os.path.join("static", file.filename)
+        # Save the uploaded file to the uploads directory
+        uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")
+        os.makedirs(uploads_dir, exist_ok=True)
+        filepath = os.path.join(uploads_dir, file.filename)
         file.save(filepath)
 
         # Preprocess the image
@@ -275,35 +291,47 @@ def predict():
         # Make prediction
         predictions = model.predict(img_array)
         predicted_class = class_names[np.argmax(predictions)]
-        confidence = np.max(predictions)
+        confidence = float(np.max(predictions))
+
+        # Copy image to static for display
+        static_filename = file.filename
+        static_path = os.path.join(os.path.dirname(__file__), "static", static_filename)
+        shutil.copy2(filepath, static_path)
 
         # Handle unrelated images with a confidence threshold
         if predicted_class == 'Unknown' or confidence < 0.7:
-            return render_template(
-                "result.html",
-                image_path=file.filename,
-                predicted_class='Unrelated image detected. Please upload an image related to cotton plants.',
-                solutions={'message': 'Unrelated image detected. Please upload an image related to cotton plants.'}
-            )
+            return jsonify({
+                "status": "success",
+                "predicted_class": "Unrelated image detected. Please upload an image related to cotton plants.",
+                "confidence": confidence,
+                "image_url": f"/static/{static_filename}",
+                "solutions": {"message": "Unrelated image detected. Please upload an image related to cotton plants."}
+            }), 200
+
         if predicted_class == 'Healthy leaf':
-            return render_template(
-                "result.html",
-                image_path=file.filename,
-                predicted_class='Healthy Image',
-                solutions={}
-            )
+            return jsonify({
+                "status": "success",
+                "predicted_class": "Healthy Image",
+                "confidence": confidence,
+                "image_url": f"/static/{static_filename}",
+                "solutions": {}
+            }), 200
 
         # Get solutions for the predicted class
         solution = solutions.get(predicted_class, {})
-        return render_template(
-            "result.html",
-            image_path=file.filename,
-            predicted_class=predicted_class,
-            solutions=solution
-        )
+        return jsonify({
+            "status": "success",
+            "predicted_class": predicted_class,
+            "confidence": confidence,
+            "image_url": f"/static/{static_filename}",
+            "solutions": solution
+        }), 200
 
     except Exception as e:
-        return render_template("error.html", message=f"An error occurred: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"An error occurred: {str(e)}"
+        }), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(debug=True)
