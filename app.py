@@ -7,15 +7,19 @@ import os
 import shutil
 import requests
 
+from flask_cors import CORS
+
 app = Flask(__name__)
 
-# Enable CORS for frontend on Vercel to communicate with this backend
-CORS(app, origins=["https://plantpulseaigpk.vercel.app", "https://*.vercel.app", "http://localhost:3000", "http://localhost:5000"])
-
+CORS(app, origins=[
+    "https://plantpulseaigpk.vercel.app",
+    "http://localhost:3000"
+])
 # Load the pre-trained model
-model_path = 'cotton_disease_model.h5'  # Update this with your actual model file path
-model = tf.keras.models.load_model(model_path)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "cotton_disease_model.h5")
 
+model = tf.keras.models.load_model(MODEL_PATH)
 # Class names based on the dataset (include 'Unknown' for unrelated images)
 class_names = ['Aphids', 'Army worm', 'Bacterial blight', 
                'Healthy leaf', 'Powder mildew', 'Target spot', 'Unknown']
